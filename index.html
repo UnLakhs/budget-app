@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="color-scheme" content="light dark">
+<title>Έξοδα</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Σύνδεση -->
+<main id="screen-auth" class="screen" hidden>
+  <h1 class="title">Έξοδα</h1>
+  <form id="auth-form" class="card stack" autocomplete="on">
+    <label>Email
+      <input id="auth-email" type="email" autocomplete="email" required>
+    </label>
+    <label>Κωδικός
+      <input id="auth-pass" type="password" autocomplete="current-password" minlength="6" required>
+    </label>
+    <button class="btn primary" id="auth-submit" type="submit">Σύνδεση</button>
+    <button class="btn link" id="auth-toggle" type="button">Δεν έχω λογαριασμό · Εγγραφή</button>
+    <p class="msg" id="auth-msg" role="status"></p>
+  </form>
+</main>
+
+<!-- Αρχικό υπόλοιπο -->
+<main id="screen-setup" class="screen" hidden>
+  <h1 class="title">Καλώς ήρθες</h1>
+  <form id="setup-form" class="card stack">
+    <label>Πόσα χρήματα έχεις διαθέσιμα τώρα;
+      <input id="setup-amount" class="amount" inputmode="decimal" autocomplete="off" placeholder="0,00" required>
+    </label>
+    <button class="btn primary" type="submit">Έναρξη</button>
+  </form>
+</main>
+
+<!-- Αρχική -->
+<main id="screen-home" class="screen" hidden>
+  <header class="topbar">
+    <span class="muted">Διαθέσιμο υπόλοιπο</span>
+    <button id="open-settings" class="icon-btn" aria-label="Ρυθμίσεις">⚙</button>
+  </header>
+  <div id="balance" class="balance">—</div>
+
+  <form id="add-form" class="card stack" autocomplete="off">
+    <input id="add-amount" class="amount" inputmode="decimal" placeholder="Ποσό (€)" aria-label="Ποσό" required>
+    <input id="add-note" type="text" placeholder="Σημείωση (προαιρετικό)" aria-label="Σημείωση" maxlength="200">
+    <button class="btn primary" type="submit">Καταχώρηση</button>
+  </form>
+
+  <button id="payday" class="btn secondary wide" type="button">Πληρώθηκα</button>
+
+  <section class="summary" aria-label="Σύνοψη εξόδων">
+    <div><span class="muted">Σήμερα</span><b id="sum-day">—</b></div>
+    <div><span class="muted">Εβδομάδα</span><b id="sum-week">—</b></div>
+    <div><span class="muted">Μήνας</span><b id="sum-month">—</b></div>
+  </section>
+
+  <h2 class="section-title">Κινήσεις</h2>
+  <ul id="history" class="history"></ul>
+  <button id="more" class="btn link" type="button" hidden>Περισσότερες κινήσεις</button>
+</main>
+
+<!-- Ρυθμίσεις -->
+<dialog id="dlg-settings">
+  <form method="dialog" class="stack" id="settings-form">
+    <h2>Ρυθμίσεις</h2>
+    <label>Ποσό «Πληρώθηκα» (€)
+      <input id="set-payday" inputmode="decimal" autocomplete="off" required>
+    </label>
+    <label>Διόρθωση υπολοίπου — σωστό υπόλοιπο (€)
+      <input id="set-balance" inputmode="decimal" autocomplete="off" placeholder="Άφησέ το κενό αν δεν αλλάζει">
+    </label>
+    <p class="muted small">Η διόρθωση προστίθεται ως κίνηση στο ιστορικό.</p>
+    <div class="row">
+      <button class="btn primary" type="submit">Αποθήκευση</button>
+      <button class="btn secondary" type="button" data-close>Κλείσιμο</button>
+    </div>
+    <button class="btn link" id="logout" type="button">Αποσύνδεση</button>
+    <p class="msg" id="settings-msg" role="status"></p>
+  </form>
+</dialog>
+
+<!-- Επεξεργασία κίνησης -->
+<dialog id="dlg-edit">
+  <form method="dialog" class="stack" id="edit-form">
+    <h2 id="edit-title">Κίνηση</h2>
+    <label id="edit-amount-wrap">Ποσό (€)
+      <input id="edit-amount" inputmode="decimal" autocomplete="off">
+    </label>
+    <label>Σημείωση
+      <input id="edit-note" type="text" maxlength="200">
+    </label>
+    <div class="row">
+      <button class="btn primary" id="edit-save" type="submit">Αποθήκευση</button>
+      <button class="btn secondary" type="button" data-close>Κλείσιμο</button>
+    </div>
+    <button class="btn danger" id="edit-delete" type="button">Διαγραφή</button>
+    <p class="msg" id="edit-msg" role="status"></p>
+  </form>
+</dialog>
+
+<!-- Επιβεβαίωση -->
+<dialog id="dlg-confirm">
+  <form method="dialog" class="stack">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-text"></p>
+    <div class="row">
+      <button class="btn primary" id="confirm-ok" type="button">Ναι</button>
+      <button class="btn secondary" id="confirm-cancel" type="button">Άκυρο</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script src="vendor/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
