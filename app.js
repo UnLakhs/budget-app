@@ -49,7 +49,7 @@ function createSupabaseStore(sb, userId) {
       return {
         payday_cents: data?.payday_cents ?? 100000,
         savings_goal_cents: data?.savings_goal_cents ?? 0,
-        payday_day: data?.payday_day ?? null,
+        next_payday: data?.next_payday ?? null,
         pending_bills_cents: data?.pending_bills_cents ?? 0,
       };
     },
@@ -76,7 +76,7 @@ function createLocalStore() {
     async update(id, patch) { const d = load(); Object.assign(d.txs.find((t) => t.id === id), patch); save(d); },
     async remove(id) { const d = load(); d.txs = d.txs.filter((t) => t.id !== id); save(d); },
     async getSettings() {
-      return { payday_cents: 100000, savings_goal_cents: 0, payday_day: null, pending_bills_cents: 0, ...load().settings };
+      return { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0, ...load().settings };
     },
     async saveSettings(s) { const d = load(); d.settings = s; save(d); },
   };
@@ -89,7 +89,7 @@ const cfg = window.APP_CONFIG || {};
 const LOCAL_MODE = !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY;
 const PAGE = 100;
 
-const state = { store: null, txs: [], settings: { payday_cents: 100000, savings_goal_cents: 0, payday_day: null, pending_bills_cents: 0 }, shown: PAGE, editing: null };
+const state = { store: null, txs: [], settings: { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0 }, shown: PAGE, editing: null };
 let sb = null;
 
 function show(screen) {
@@ -144,27 +144,31 @@ function spentSince(start, { excludeBills = false } = {}) {
     .reduce((s, t) => s - Number(t.amount_cents), 0);
 }
 
-// Επόμενη πληρωμή: η πρώτη ημερομηνία ΜΕΤΑ από σήμερα με ημέρα του μήνα = payday_day
-// (αν ο μήνας είναι μικρότερος, η τελευταία του μέρα).
-function nextPayday(today, dom) {
-  for (let m = 0; m < 3; m++) {
-    const last = new Date(today.getFullYear(), today.getMonth() + m + 1, 0).getDate();
-    const d = new Date(today.getFullYear(), today.getMonth() + m, Math.min(dom, last));
-    if (d > today) return d;
+// Εκτίμηση επόμενης πληρωμής: η 5η εργασιμη (Δευτ–Παρ, χωρίς αργίες) του επόμενου μήνα.
+function estimateNextPayday(from = new Date()) {
+  const first = new Date(from.getFullYear(), from.getMonth() + 1, 1);
+  let d = new Date(first), n = 0;
+  for (;; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() !== 0 && d.getDay() !== 6 && ++n === 5) break;
   }
+  return toDateStr(d);
 }
+const toDateStr = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const parseDateStr = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 
 // Διαθέσιμα για έξοδα = υπόλοιπο − στόχος αποταμίευσης − λογαριασμοί που απομένουν.
 // Ημερήσιο ποσό = (διαθέσιμα στην αρχή της σημερινής μέρας) ÷ μέρες μέχρι την επόμενη πληρωμή.
 function budgetInfo() {
-  const { payday_day: dom, savings_goal_cents: goal, pending_bills_cents: pending } = state.settings;
-  if (!dom) return null;
+  const { next_payday: nextStr, savings_goal_cents: goal, pending_bills_cents: pending } = state.settings;
+  if (!nextStr) return null;
   const { day } = periodStarts();
-  const daysLeft = Math.round((nextPayday(day, dom) - day) / 86400000);
+  const diff = Math.round((parseDateStr(nextStr) - day) / 86400000);
+  const overdue = diff < 1; // η ημερομηνία πληρωμής πέρασε και δεν πάτησες «Πληρώθηκα»
+  const daysLeft = Math.max(1, diff);
   const spentToday = spentSince(day, { excludeBills: true });
   const available = balanceCents() - goal - pending;
   const allowance = Math.floor((available + spentToday) / daysLeft); // λεπτά, ακέραιο
-  return { allowance, leftToday: allowance - spentToday, available, daysLeft, goal, pending };
+  return { allowance, leftToday: allowance - spentToday, available, daysLeft, goal, pending, overdue };
 }
 
 function periodStarts() {
@@ -198,7 +202,7 @@ function render() {
   if (b) {
     $("bud-today").textContent = formatCents(b.leftToday);
     $("bud-today").classList.toggle("neg", b.leftToday < 0);
-    $("bud-daily").textContent = `Ημερήσιο ποσό: ${formatCents(b.allowance)} · ${b.daysLeft} μέρες μέχρι την πληρωμή`;
+    $("bud-daily").textContent = `Ημερήσιο ποσό: ${formatCents(b.allowance)} · ${b.overdue ? "η πληρωμή έχει περάσει — πάτα «Πληρώθηκα»" : b.daysLeft + " μέρες μέχρι την πληρωμή"}`;
     $("bud-month").textContent = `Στην άκρη: ${formatCents(b.goal)} · Λογαριασμοί που απομένουν: ${formatCents(b.pending)}`;
   }
 
@@ -260,6 +264,9 @@ $("payday").addEventListener("click", async () => {
   if (!(await confirmDialog("Πληρώθηκα", `Να προστεθούν ${formatCents(amount)} στο υπόλοιπο;`))) return;
   const ok = await run(async () => {
     await state.store.add({ kind: "income", amount_cents: amount, note: "Πληρωμή" });
+    const next = { ...state.settings, next_payday: estimateNextPayday() };
+    await state.store.saveSettings(next);
+    state.settings = next;
     await refresh();
   });
   if (ok) toast("Προστέθηκαν " + formatCents(amount));
@@ -321,7 +328,7 @@ $("open-settings").addEventListener("click", () => {
   $("set-payday").value = centsToInput(state.settings.payday_cents);
   $("set-balance").value = "";
   $("set-goal").value = centsToInput(state.settings.savings_goal_cents);
-  $("set-payday-day").value = state.settings.payday_day ?? "";
+  $("set-next-payday").value = state.settings.next_payday ?? "";
   $("set-pending").value = centsToInput(state.settings.pending_bills_cents);
   $("settings-msg").textContent = "";
   $("dlg-settings").showModal();
@@ -336,15 +343,13 @@ $("settings-form").addEventListener("submit", async (e) => {
   if (goal === null) { msg.textContent = "Μη έγκυρος στόχος αποταμίευσης"; return; }
   const pending = parseCents($("set-pending").value.trim() || "0");
   if (pending === null) { msg.textContent = "Μη έγκυρο ποσό λογαριασμών"; return; }
-  const dayText = $("set-payday-day").value.trim();
-  const dom = dayText === "" ? null : Number(dayText);
-  if (dom !== null && !(Number.isInteger(dom) && dom >= 1 && dom <= 31)) { msg.textContent = "Η ημέρα πληρωμής πρέπει να είναι 1–31"; return; }
+  const nextPay = $("set-next-payday").value || null;
   const balText = $("set-balance").value.trim();
   const target = balText === "" ? null : parseCents(balText, true);
   if (balText !== "" && target === null) { msg.textContent = "Μη έγκυρο υπόλοιπο"; return; }
 
   const ok = await run(async () => {
-    const next = { payday_cents: payday, savings_goal_cents: goal, payday_day: dom, pending_bills_cents: pending };
+    const next = { payday_cents: payday, savings_goal_cents: goal, next_payday: nextPay, pending_bills_cents: pending };
     if (JSON.stringify(next) !== JSON.stringify(state.settings)) {
       await state.store.saveSettings(next);
       state.settings = next;
