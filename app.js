@@ -46,10 +46,12 @@ function createSupabaseStore(sb, userId) {
     async getSettings() {
       const { data, error } = await sb.from("settings").select("*").maybeSingle();
       fail(error);
-      return { payday_cents: data?.payday_cents ?? 100000 };
+      return { payday_cents: data?.payday_cents ?? 100000, monthly_budget_cents: data?.monthly_budget_cents ?? null };
     },
     async saveSettings(s) {
-      const { error } = await sb.from("settings").upsert({ user_id: userId, payday_cents: s.payday_cents });
+      const { error } = await sb.from("settings").upsert({
+        user_id: userId, payday_cents: s.payday_cents, monthly_budget_cents: s.monthly_budget_cents,
+      });
       fail(error);
     },
   };
@@ -82,7 +84,7 @@ const cfg = window.APP_CONFIG || {};
 const LOCAL_MODE = !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY;
 const PAGE = 100;
 
-const state = { store: null, txs: [], settings: { payday_cents: 100000 }, shown: PAGE, editing: null };
+const state = { store: null, txs: [], settings: { payday_cents: 100000, monthly_budget_cents: null }, shown: PAGE, editing: null };
 let sb = null;
 
 function show(screen) {
@@ -130,11 +132,25 @@ async function run(action, msgEl) {
 
 const balanceCents = () => state.txs.reduce((s, t) => s + Number(t.amount_cents), 0);
 
-function spentSince(start) {
+function spentSince(start, { excludeBills = false } = {}) {
   const from = start.getTime();
   return state.txs
-    .filter((t) => t.kind === "expense" && new Date(t.occurred_at).getTime() >= from)
+    .filter((t) => t.kind === "expense" && !(excludeBills && t.is_bill) && new Date(t.occurred_at).getTime() >= from)
     .reduce((s, t) => s - Number(t.amount_cents), 0);
+}
+
+// Προσαρμοζόμενο ημερήσιο ποσό: (budget − έξοδα μήνα πριν από σήμερα) ÷ υπόλοιπες μέρες (μαζί με σήμερα).
+function budgetInfo() {
+  const budget = state.settings.monthly_budget_cents;
+  if (budget == null) return null;
+  const { day, month } = periodStarts();
+  const daysInMonth = new Date(day.getFullYear(), day.getMonth() + 1, 0).getDate();
+  const daysLeft = daysInMonth - day.getDate() + 1;
+  const spentMonth = spentSince(month, { excludeBills: true });
+  const spentToday = spentSince(day, { excludeBills: true });
+  const spentBefore = spentMonth - spentToday;
+  const allowance = Math.floor((budget - spentBefore) / daysLeft); // λεπτά, ακέραιο
+  return { allowance, leftToday: allowance - spentToday, leftMonth: budget - spentMonth, daysLeft };
 }
 
 function periodStarts() {
@@ -162,6 +178,15 @@ function render() {
   $("sum-week").textContent = formatCents(spentSince(p.week));
   $("sum-month").textContent = formatCents(spentSince(p.month));
 
+  const b = budgetInfo();
+  $("budget-card").hidden = !b;
+  if (b) {
+    $("bud-today").textContent = formatCents(b.leftToday);
+    $("bud-today").classList.toggle("neg", b.leftToday < 0);
+    $("bud-detail").textContent =
+      `Ημερήσιο: ${formatCents(b.allowance)} · Απομένουν στον μήνα: ${formatCents(b.leftMonth)} (${b.daysLeft} μέρες)`;
+  }
+
   const ul = $("history");
   ul.replaceChildren();
   const visible = state.txs.slice(0, state.shown);
@@ -170,6 +195,7 @@ function render() {
     li.dataset.id = t.id;
     const what = document.createElement("div"); what.className = "what";
     const note = document.createElement("div"); note.className = "note"; note.textContent = txLabel(t);
+    if (t.is_bill) { const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "λογαριασμός"; note.append(tag); }
     const when = document.createElement("div"); when.className = "when"; when.textContent = dateFmt.format(new Date(t.occurred_at));
     what.append(note, when);
     const amt = document.createElement("div");
@@ -201,11 +227,11 @@ $("add-form").addEventListener("submit", async (e) => {
   if (!cents) { toast("Βάλε έγκυρο ποσό"); $("add-amount").focus(); return; }
   const btn = e.currentTarget.querySelector("button[type=submit]"); btn.disabled = true;
   const ok = await run(async () => {
-    await state.store.add({ kind: "expense", amount_cents: -cents, note: $("add-note").value.trim() || null });
+    await state.store.add({ kind: "expense", amount_cents: -cents, note: $("add-note").value.trim() || null, is_bill: $("add-bill").checked });
     await refresh();
   });
   btn.disabled = false;
-  if (ok) { $("add-amount").value = ""; $("add-note").value = ""; toast("Καταχωρήθηκε"); $("add-amount").focus(); }
+  if (ok) { $("add-amount").value = ""; $("add-note").value = ""; $("add-bill").checked = false; toast("Καταχωρήθηκε"); $("add-amount").focus(); }
 });
 
 $("payday").addEventListener("click", async () => {
@@ -241,6 +267,8 @@ $("history").addEventListener("click", (e) => {
   $("edit-amount-wrap").hidden = !editable;
   $("edit-amount").value = centsToInput(Math.abs(Number(t.amount_cents)));
   $("edit-note").value = t.note || "";
+  $("edit-bill-wrap").hidden = t.kind !== "expense";
+  $("edit-bill").checked = !!t.is_bill;
   $("edit-msg").textContent = "";
   $("dlg-edit").showModal();
 });
@@ -254,6 +282,7 @@ $("edit-form").addEventListener("submit", async (e) => {
     if (!cents) { $("edit-msg").textContent = "Βάλε έγκυρο ποσό"; return; }
     patch.amount_cents = t.kind === "expense" ? -cents : cents;
   }
+  if (t.kind === "expense") patch.is_bill = $("edit-bill").checked;
   const ok = await run(async () => { await state.store.update(t.id, patch); await refresh(); }, $("edit-msg"));
   if (ok) $("dlg-edit").close();
 });
@@ -269,6 +298,8 @@ $("edit-delete").addEventListener("click", async () => {
 $("open-settings").addEventListener("click", () => {
   $("set-payday").value = centsToInput(state.settings.payday_cents);
   $("set-balance").value = "";
+  const mb = state.settings.monthly_budget_cents;
+  $("set-budget").value = mb == null ? "" : centsToInput(mb);
   $("settings-msg").textContent = "";
   $("dlg-settings").showModal();
 });
@@ -278,14 +309,17 @@ $("settings-form").addEventListener("submit", async (e) => {
   const msg = $("settings-msg");
   const payday = parseCents($("set-payday").value);
   if (!payday) { msg.textContent = "Μη έγκυρο ποσό «Πληρώθηκα»"; return; }
+  const budText = $("set-budget").value.trim();
+  const budget = budText === "" ? null : parseCents(budText);
+  if (budText !== "" && !budget) { msg.textContent = "Μη έγκυρο budget"; return; }
   const balText = $("set-balance").value.trim();
   const target = balText === "" ? null : parseCents(balText, true);
   if (balText !== "" && target === null) { msg.textContent = "Μη έγκυρο υπόλοιπο"; return; }
 
   const ok = await run(async () => {
-    if (payday !== state.settings.payday_cents) {
-      await state.store.saveSettings({ payday_cents: payday });
-      state.settings.payday_cents = payday;
+    if (payday !== state.settings.payday_cents || budget !== state.settings.monthly_budget_cents) {
+      await state.store.saveSettings({ payday_cents: payday, monthly_budget_cents: budget });
+      state.settings = { payday_cents: payday, monthly_budget_cents: budget };
     }
     if (target !== null) {
       const diff = target - balanceCents();

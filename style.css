@@ -75,6 +75,12 @@ dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--c
 dialog::backdrop { background: rgba(0,0,0,.5); }
 dialog h2 { margin: 0 0 4px; font-size: 1.2rem; }
 
+label.check { flex-direction: row; align-items: center; gap: 10px; color: var(--text); font-size: 15px; }
+label.check input { width: 22px; height: 22px; accent-color: var(--accent); }
+.budget { display: flex; flex-direction: column; gap: 2px; }
+.budget b { font-size: 2rem; font-variant-numeric: tabular-nums; }
+.budget b.neg { color: var(--neg); }
+.history .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-left: 6px; }
 .msg { margin: 0; min-height: 1em; font-size: 14px; color: var(--danger); }
 .msg.ok { color: var(--pos); }
 .toast {

@@ -53,8 +53,15 @@
   <form id="add-form" class="card stack" autocomplete="off">
     <input id="add-amount" class="amount" inputmode="decimal" placeholder="Ποσό (€)" aria-label="Ποσό" required>
     <input id="add-note" type="text" placeholder="Σημείωση (προαιρετικό)" aria-label="Σημείωση" maxlength="200">
+    <label class="check"><input id="add-bill" type="checkbox"> Λογαριασμός (εκτός budget)</label>
     <button class="btn primary" type="submit">Καταχώρηση</button>
   </form>
+
+  <section id="budget-card" class="card budget" hidden aria-label="Budget μήνα">
+    <span class="muted">Απομένουν σήμερα</span>
+    <b id="bud-today">—</b>
+    <span class="muted small" id="bud-detail"></span>
+  </section>
 
   <button id="payday" class="btn secondary wide" type="button">Πληρώθηκα</button>
 
@@ -75,6 +82,9 @@
     <h2>Ρυθμίσεις</h2>
     <label>Ποσό «Πληρώθηκα» (€)
       <input id="set-payday" inputmode="decimal" autocomplete="off" required>
+    </label>
+    <label>Μηνιαίο budget (€) — χωρίς λογαριασμούς
+      <input id="set-budget" inputmode="decimal" autocomplete="off" placeholder="Κενό = χωρίς budget">
     </label>
     <label>Διόρθωση υπολοίπου — σωστό υπόλοιπο (€)
       <input id="set-balance" inputmode="decimal" autocomplete="off" placeholder="Άφησέ το κενό αν δεν αλλάζει">
@@ -99,6 +109,7 @@
     <label>Σημείωση
       <input id="edit-note" type="text" maxlength="200">
     </label>
+    <label class="check" id="edit-bill-wrap"><input id="edit-bill" type="checkbox"> Λογαριασμός (εκτός budget)</label>
     <div class="row">
       <button class="btn primary" id="edit-save" type="submit">Αποθήκευση</button>
       <button class="btn secondary" type="button" data-close>Κλείσιμο</button>
