@@ -44,34 +44,42 @@
 
 <!-- Αρχική -->
 <main id="screen-home" class="screen" hidden>
-  <header class="topbar">
-    <span class="muted">Διαθέσιμο υπόλοιπο</span>
-    <button id="open-settings" class="icon-btn" aria-label="Ρυθμίσεις">⚙</button>
-  </header>
-  <div id="balance" class="balance">—</div>
+  <section class="hero">
+    <div class="hero-top">
+      <span>Διαθέσιμο υπόλοιπο</span>
+      <button id="open-settings" class="icon-btn" aria-label="Ρυθμίσεις">⚙</button>
+    </div>
+    <div id="balance" class="balance">—</div>
+    <button id="payday" class="pill" type="button">＋ Πληρώθηκα</button>
+  </section>
 
+  <section id="budget-card" class="card budget" hidden aria-label="Budget μήνα">
+    <span class="muted">Μπορείς να ξοδέψεις σήμερα</span>
+    <b id="bud-today">—</b>
+    <span class="small muted" id="bud-daily"></span>
+    <span class="small muted" id="bud-month"></span>
+  </section>
+  <button id="budget-empty" class="card hint" type="button" hidden>Όρισε μηνιαίο budget για να βλέπεις πόσα μπορείς να ξοδεύεις τη μέρα →</button>
+
+  <h2 class="section-title">Νέο έξοδο</h2>
   <form id="add-form" class="card stack" autocomplete="off">
-    <input id="add-amount" class="amount" inputmode="decimal" placeholder="Ποσό (€)" aria-label="Ποσό" required>
+    <div class="money">
+      <input id="add-amount" class="amount" inputmode="decimal" placeholder="0,00" aria-label="Ποσό" required>
+      <span class="cur">€</span>
+    </div>
     <input id="add-note" type="text" placeholder="Σημείωση (προαιρετικό)" aria-label="Σημείωση" maxlength="200">
-    <label class="check"><input id="add-bill" type="checkbox"> Λογαριασμός (εκτός budget)</label>
+    <label class="check"><input id="add-bill" type="checkbox"><span>Λογαριασμός<small>δεν μετράει στο budget</small></span></label>
     <button class="btn primary" type="submit">Καταχώρηση</button>
   </form>
 
-  <section id="budget-card" class="card budget" hidden aria-label="Budget μήνα">
-    <span class="muted">Απομένουν σήμερα</span>
-    <b id="bud-today">—</b>
-    <span class="muted small" id="bud-detail"></span>
-  </section>
-
-  <button id="payday" class="btn secondary wide" type="button">Πληρώθηκα</button>
-
+  <h2 class="section-title">Τι ξόδεψα</h2>
   <section class="summary" aria-label="Σύνοψη εξόδων">
-    <div><span class="muted">Σήμερα</span><b id="sum-day">—</b></div>
-    <div><span class="muted">Εβδομάδα</span><b id="sum-week">—</b></div>
-    <div><span class="muted">Μήνας</span><b id="sum-month">—</b></div>
+    <div><span>Σήμερα</span><b id="sum-day">—</b></div>
+    <div><span>Αυτή την εβδομάδα</span><b id="sum-week">—</b></div>
+    <div><span>Αυτόν τον μήνα</span><b id="sum-month">—</b></div>
   </section>
 
-  <h2 class="section-title">Κινήσεις</h2>
+  <h2 class="section-title">Ιστορικό <small>(πάτα μια κίνηση για αλλαγή ή διαγραφή)</small></h2>
   <ul id="history" class="history"></ul>
   <button id="more" class="btn link" type="button" hidden>Περισσότερες κινήσεις</button>
 </main>

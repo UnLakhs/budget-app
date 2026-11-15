@@ -180,11 +180,12 @@ function render() {
 
   const b = budgetInfo();
   $("budget-card").hidden = !b;
+  $("budget-empty").hidden = !!b;
   if (b) {
     $("bud-today").textContent = formatCents(b.leftToday);
     $("bud-today").classList.toggle("neg", b.leftToday < 0);
-    $("bud-detail").textContent =
-      `Ημερήσιο: ${formatCents(b.allowance)} · Απομένουν στον μήνα: ${formatCents(b.leftMonth)} (${b.daysLeft} μέρες)`;
+    $("bud-daily").textContent = `Ημερήσιο ποσό: ${formatCents(b.allowance)}`;
+    $("bud-month").textContent = `Μέχρι το τέλος του μήνα (${b.daysLeft} μέρες): ${formatCents(b.leftMonth)}`;
   }
 
   const ul = $("history");
@@ -295,6 +296,7 @@ $("edit-delete").addEventListener("click", async () => {
 });
 
 // Ρυθμίσεις
+$("budget-empty").addEventListener("click", () => $("open-settings").click());
 $("open-settings").addEventListener("click", () => {
   $("set-payday").value = centsToInput(state.settings.payday_cents);
   $("set-balance").value = "";
