@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -68,6 +68,7 @@
       <span class="cur">€</span>
     </div>
     <input id="add-note" type="text" placeholder="Σημείωση (προαιρετικό)" aria-label="Σημείωση" maxlength="200">
+    <div id="add-cats" class="chips" role="group" aria-label="Κατηγορία (προαιρετικό)"></div>
     <label class="check"><input id="add-bill" type="checkbox"><span>Λογαριασμός<small>δεν μετράει στο ημερήσιο ποσό</small></span></label>
     <button class="btn primary" type="submit">Καταχώρηση</button>
   </form>
@@ -106,6 +107,14 @@
       <input id="set-balance" inputmode="decimal" autocomplete="off" placeholder="Άφησέ το κενό αν δεν αλλάζει">
     </label>
     <p class="muted small">Η διόρθωση προστίθεται ως κίνηση στο ιστορικό.</p>
+    <div>
+      <span class="muted small">Κατηγορίες εξόδων</span>
+      <ul id="cat-list" class="cat-list"></ul>
+      <div class="row">
+        <input id="cat-new" type="text" placeholder="Νέα κατηγορία" maxlength="30" autocomplete="off">
+        <button class="btn secondary" id="cat-add" type="button" style="flex:none;width:auto">Προσθήκη</button>
+      </div>
+    </div>
     <div class="row">
       <button class="btn primary" type="submit">Αποθήκευση</button>
       <button class="btn secondary" type="button" data-close>Κλείσιμο</button>
@@ -125,6 +134,7 @@
     <label>Σημείωση
       <input id="edit-note" type="text" maxlength="200">
     </label>
+    <div id="edit-cats-wrap"><span class="muted small">Κατηγορία</span><div id="edit-cats" class="chips"></div></div>
     <label class="check" id="edit-bill-wrap"><input id="edit-bill" type="checkbox"> Λογαριασμός (εκτός ημερήσιου ποσού)</label>
     <div class="row">
       <button class="btn primary" id="edit-save" type="submit">Αποθήκευση</button>
@@ -150,7 +160,7 @@
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script src="vendor/supabase.js"></script>
-<script src="config.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

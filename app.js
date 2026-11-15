@@ -43,6 +43,15 @@ function createSupabaseStore(sb, userId) {
     async add(tx) { const { error } = await sb.from("transactions").insert(tx); fail(error); },
     async update(id, patch) { const { error } = await sb.from("transactions").update(patch).eq("id", id); fail(error); },
     async remove(id) { const { error } = await sb.from("transactions").delete().eq("id", id); fail(error); },
+    async listCategories() {
+      const { data, error } = await sb.from("categories").select("*").order("created_at").order("name");
+      fail(error); return data;
+    },
+    async addCategories(names) {
+      const { error } = await sb.from("categories").upsert(names.map((name) => ({ user_id: userId, name })), { onConflict: "user_id,name", ignoreDuplicates: true });
+      fail(error);
+    },
+    async removeCategory(id) { const { error } = await sb.from("categories").delete().eq("id", id); fail(error); },
     async getSettings() {
       const { data, error } = await sb.from("settings").select("*").maybeSingle();
       fail(error);
@@ -75,6 +84,17 @@ function createLocalStore() {
     },
     async update(id, patch) { const d = load(); Object.assign(d.txs.find((t) => t.id === id), patch); save(d); },
     async remove(id) { const d = load(); d.txs = d.txs.filter((t) => t.id !== id); save(d); },
+    async listCategories() { return load().cats || []; },
+    async addCategories(names) {
+      const d = load(); d.cats = d.cats || [];
+      for (const name of names) if (!d.cats.some((c) => c.name === name)) d.cats.push({ id: crypto.randomUUID(), name });
+      save(d);
+    },
+    async removeCategory(id) {
+      const d = load(); d.cats = (d.cats || []).filter((c) => c.id !== id);
+      for (const t of d.txs) if (t.category_id === id) t.category_id = null;
+      save(d);
+    },
     async getSettings() {
       return { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0, ...load().settings };
     },
@@ -89,7 +109,35 @@ const cfg = window.APP_CONFIG || {};
 const LOCAL_MODE = !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY;
 const PAGE = 100;
 
-const state = { store: null, txs: [], settings: { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0 }, shown: PAGE, editing: null };
+const state = { store: null, txs: [], settings: { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0 }, cats: [], addCat: null, editCat: null, shown: PAGE, editing: null };
+const DEFAULT_CATS = ["Φαγητό", "Σούπερ μάρκετ", "Καφές / έξω", "Μετακινήσεις", "Διασκέδαση", "Αγορές", "Υγεία", "Άλλο"];
+const catName = (id) => state.cats.find((c) => c.id === id)?.name;
+
+// Chips επιλογής κατηγορίας. Ξαναπάτημα = αποεπιλογή (η κατηγορία είναι προαιρετική).
+function renderChips(el, selectedId, onPick) {
+  el.replaceChildren();
+  for (const c of state.cats) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = c.name;
+    b.setAttribute("aria-pressed", String(c.id === selectedId));
+    b.addEventListener("click", () => { onPick(c.id === selectedId ? null : c.id); });
+    el.append(b);
+  }
+}
+function renderCatLists() {
+  renderChips($("add-cats"), state.addCat, (id) => { state.addCat = id; renderCatLists(); });
+  renderChips($("edit-cats"), state.editCat, (id) => { state.editCat = id; renderCatLists(); });
+  const ul = $("cat-list"); ul.replaceChildren();
+  for (const c of state.cats) {
+    const li = document.createElement("li"); li.textContent = c.name;
+    const x = document.createElement("button"); x.type = "button"; x.className = "x"; x.textContent = "✕"; x.setAttribute("aria-label", "Διαγραφή " + c.name);
+    x.addEventListener("click", async () => {
+      if (!(await confirmDialog("Διαγραφή κατηγορίας", "Να διαγραφεί η «" + c.name + "»; Οι κινήσεις της θα μείνουν χωρίς κατηγορία."))) return;
+      await run(async () => { await state.store.removeCategory(c.id); if (state.addCat === c.id) state.addCat = null; await refresh(); });
+    });
+    li.append(x); ul.append(li);
+  }
+}
 let sb = null;
 
 function show(screen) {
@@ -214,6 +262,7 @@ function render() {
     li.dataset.id = t.id;
     const what = document.createElement("div"); what.className = "what";
     const note = document.createElement("div"); note.className = "note"; note.textContent = txLabel(t);
+    if (catName(t.category_id)) { const ct = document.createElement("span"); ct.className = "tag"; ct.textContent = catName(t.category_id); note.append(ct); }
     if (t.is_bill) { const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "λογαριασμός"; note.append(tag); }
     const when = document.createElement("div"); when.className = "when"; when.textContent = dateFmt.format(new Date(t.occurred_at));
     what.append(note, when);
@@ -233,8 +282,15 @@ function render() {
 
 async function refresh() {
   state.txs = await state.store.list();
+  state.cats = await state.store.listCategories();
+  if (state.cats.length === 0 && state.txs.length > 0 && !localStorage.getItem("cats-seeded")) {
+    localStorage.setItem("cats-seeded", "1");
+    await state.store.addCategories(DEFAULT_CATS);
+    state.cats = await state.store.listCategories();
+  }
   if (state.txs.length === 0) { show("screen-setup"); $("setup-amount").focus(); return; }
   show("screen-home");
+  renderCatLists();
   render();
 }
 
@@ -246,7 +302,7 @@ $("add-form").addEventListener("submit", async (e) => {
   if (!cents) { toast("Βάλε έγκυρο ποσό"); $("add-amount").focus(); return; }
   const btn = e.currentTarget.querySelector("button[type=submit]"); btn.disabled = true;
   const ok = await run(async () => {
-    await state.store.add({ kind: "expense", amount_cents: -cents, note: $("add-note").value.trim() || null, is_bill: $("add-bill").checked });
+    await state.store.add({ kind: "expense", amount_cents: -cents, note: $("add-note").value.trim() || null, is_bill: $("add-bill").checked, category_id: state.addCat });
     // Πληρωμένος λογαριασμός: μειώνεται το ποσό «λογαριασμοί που απομένουν» (όχι κάτω από 0).
     if ($("add-bill").checked && state.settings.pending_bills_cents > 0) {
       const next = { ...state.settings, pending_bills_cents: Math.max(0, state.settings.pending_bills_cents - cents) };
@@ -256,7 +312,7 @@ $("add-form").addEventListener("submit", async (e) => {
     await refresh();
   });
   btn.disabled = false;
-  if (ok) { $("add-amount").value = ""; $("add-note").value = ""; $("add-bill").checked = false; toast("Καταχωρήθηκε"); $("add-amount").focus(); }
+  if (ok) { $("add-amount").value = ""; $("add-note").value = ""; $("add-bill").checked = false; state.addCat = null; renderCatLists(); toast("Καταχωρήθηκε"); $("add-amount").focus(); }
 });
 
 $("payday").addEventListener("click", async () => {
@@ -297,6 +353,9 @@ $("history").addEventListener("click", (e) => {
   $("edit-note").value = t.note || "";
   $("edit-bill-wrap").hidden = t.kind !== "expense";
   $("edit-bill").checked = !!t.is_bill;
+  $("edit-cats-wrap").hidden = t.kind !== "expense";
+  state.editCat = t.category_id || null;
+  renderCatLists();
   $("edit-msg").textContent = "";
   $("dlg-edit").showModal();
 });
@@ -310,7 +369,7 @@ $("edit-form").addEventListener("submit", async (e) => {
     if (!cents) { $("edit-msg").textContent = "Βάλε έγκυρο ποσό"; return; }
     patch.amount_cents = t.kind === "expense" ? -cents : cents;
   }
-  if (t.kind === "expense") patch.is_bill = $("edit-bill").checked;
+  if (t.kind === "expense") { patch.is_bill = $("edit-bill").checked; patch.category_id = state.editCat; }
   const ok = await run(async () => { await state.store.update(t.id, patch); await refresh(); }, $("edit-msg"));
   if (ok) $("dlg-edit").close();
 });
@@ -436,3 +495,14 @@ async function init() {
 }
 
 init();
+
+// Νέα κατηγορία από τις ρυθμίσεις
+async function addCategoryFromInput() {
+  const name = $("cat-new").value.trim();
+  if (!name) return;
+  if (state.cats.some((c) => c.name.toLowerCase() === name.toLowerCase())) { $("settings-msg").textContent = "Υπάρχει ήδη αυτή η κατηγορία"; return; }
+  $("settings-msg").textContent = "";
+  if (await run(async () => { await state.store.addCategories([name]); await refresh(); }, $("settings-msg"))) $("cat-new").value = "";
+}
+$("cat-add").addEventListener("click", addCategoryFromInput);
+$("cat-new").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addCategoryFromInput(); } });
