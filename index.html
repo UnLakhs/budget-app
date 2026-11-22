@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 
@@ -50,6 +50,7 @@
       <button id="open-settings" class="icon-btn" aria-label="Ρυθμίσεις">⚙</button>
     </div>
     <div id="balance" class="balance">—</div>
+    <div id="split" class="split" hidden></div>
     <button id="payday" class="pill" type="button">＋ Πληρώθηκα</button>
   </section>
 
@@ -69,9 +70,46 @@
     </div>
     <input id="add-note" type="text" placeholder="Σημείωση (προαιρετικό)" aria-label="Σημείωση" maxlength="200">
     <div id="add-cats" class="chips" role="group" aria-label="Κατηγορία (προαιρετικό)"></div>
+    <div class="seg" role="radiogroup">
+      <label><input type="radio" name="add-acct" value="bank" checked><span>Κάρτα</span></label>
+      <label><input type="radio" name="add-acct" value="cash"><span>Μετρητά</span></label>
+    </div>
     <label class="check"><input id="add-bill" type="checkbox"><span>Λογαριασμός<small>δεν μετράει στο ημερήσιο ποσό</small></span></label>
     <button class="btn primary" type="submit">Καταχώρηση</button>
   </form>
+
+  <details id="inc-fold" class="card fold">
+    <summary>＋ Προσθήκη χρημάτων στο υπόλοιπο</summary>
+    <form id="inc-form" class="stack" autocomplete="off">
+      <div class="money">
+        <input id="inc-amount" class="amount" inputmode="decimal" placeholder="0,00" aria-label="Ποσό" required>
+        <span class="cur">€</span>
+      </div>
+      <input id="inc-note" type="text" placeholder="Αιτιολογία (π.χ. επίδομα)" aria-label="Αιτιολογία" maxlength="200">
+      <div class="seg" role="radiogroup">
+      <label><input type="radio" name="inc-acct" value="bank" checked><span>Κάρτα</span></label>
+      <label><input type="radio" name="inc-acct" value="cash"><span>Μετρητά</span></label>
+    </div>
+      <label class="check"><input id="inc-extra" type="checkbox"><span>Να μη μετρήσει στο ημερήσιο ποσό<small>μένει στην άκρη μέχρι το επόμενο «Πληρώθηκα»</small></span></label>
+      <button class="btn primary" type="submit">Προσθήκη στο υπόλοιπο</button>
+    </form>
+  </details>
+
+  <details id="tr-fold" class="card fold">
+    <summary>⇄ Ανάληψη / κατάθεση μετρητών</summary>
+    <form id="tr-form" class="stack" autocomplete="off">
+      <div class="money">
+        <input id="tr-amount" class="amount" inputmode="decimal" placeholder="0,00" aria-label="Ποσό" required>
+        <span class="cur">€</span>
+      </div>
+      <div class="seg" role="radiogroup">
+      <label><input type="radio" name="tr-dir" value="cash" checked><span>Ανάληψη (→ μετρητά)</span></label>
+      <label><input type="radio" name="tr-dir" value="bank"><span>Κατάθεση (→ κάρτα)</span></label>
+    </div>
+      <p class="muted small">Δεν αλλάζει το συνολικό υπόλοιπο, μόνο πόσα είναι σε μετρητά.</p>
+      <button class="btn primary" type="submit">Καταγραφή</button>
+    </form>
+  </details>
 
   <h2 class="section-title">Τι ξόδεψα</h2>
   <section class="summary" aria-label="Σύνοψη εξόδων">
@@ -106,7 +144,10 @@
     <label>Διόρθωση υπολοίπου — σωστό υπόλοιπο (€)
       <input id="set-balance" inputmode="decimal" autocomplete="off" placeholder="Άφησέ το κενό αν δεν αλλάζει">
     </label>
-    <p class="muted small">Η διόρθωση προστίθεται ως κίνηση στο ιστορικό.</p>
+    <label>Διόρθωση μετρητών — πόσα μετρητά έχεις τώρα (€)
+      <input id="set-cash" inputmode="decimal" autocomplete="off" placeholder="Άφησέ το κενό αν δεν αλλάζει">
+    </label>
+    <p class="muted small">Οι διορθώσεις προστίθενται ως κινήσεις στο ιστορικό. Η διόρθωση μετρητών δεν αλλάζει το συνολικό υπόλοιπο.</p>
     <div>
       <span class="muted small">Κατηγορίες εξόδων</span>
       <ul id="cat-list" class="cat-list"></ul>
@@ -134,7 +175,13 @@
     <label>Σημείωση
       <input id="edit-note" type="text" maxlength="200">
     </label>
+    <div id="edit-acct-wrap"><span class="muted small">Πληρωμή με</span>
+    <div class="seg" role="radiogroup">
+      <label><input type="radio" name="edit-acct" value="bank" checked><span>Κάρτα</span></label>
+      <label><input type="radio" name="edit-acct" value="cash"><span>Μετρητά</span></label>
+    </div></div>
     <div id="edit-cats-wrap"><span class="muted small">Κατηγορία</span><div id="edit-cats" class="chips"></div></div>
+    <label class="check" id="edit-extra-wrap"><input id="edit-extra" type="checkbox"> Εκτός ημερήσιου ποσού (έως την επόμενη πληρωμή)</label>
     <label class="check" id="edit-bill-wrap"><input id="edit-bill" type="checkbox"> Λογαριασμός (εκτός ημερήσιου ποσού)</label>
     <div class="row">
       <button class="btn primary" id="edit-save" type="submit">Αποθήκευση</button>
@@ -160,7 +207,7 @@
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script src="vendor/supabase.js"></script>
-<script src="config.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="config.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

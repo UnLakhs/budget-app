@@ -60,6 +60,7 @@ function createSupabaseStore(sb, userId) {
         savings_goal_cents: data?.savings_goal_cents ?? 0,
         next_payday: data?.next_payday ?? null,
         pending_bills_cents: data?.pending_bills_cents ?? 0,
+        cycle_start: data?.cycle_start ?? null,
       };
     },
     async saveSettings(s) {
@@ -96,7 +97,7 @@ function createLocalStore() {
       save(d);
     },
     async getSettings() {
-      return { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0, ...load().settings };
+      return { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0, cycle_start: null, ...load().settings };
     },
     async saveSettings(s) { const d = load(); d.settings = s; save(d); },
   };
@@ -109,7 +110,7 @@ const cfg = window.APP_CONFIG || {};
 const LOCAL_MODE = !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY;
 const PAGE = 100;
 
-const state = { store: null, txs: [], settings: { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0 }, cats: [], addCat: null, editCat: null, shown: PAGE, editing: null };
+const state = { store: null, txs: [], settings: { payday_cents: 100000, savings_goal_cents: 0, next_payday: null, pending_bills_cents: 0, cycle_start: null }, cats: [], addCat: null, editCat: null, shown: PAGE, editing: null };
 const DEFAULT_CATS = ["Φαγητό", "Σούπερ μάρκετ", "Καφές / έξω", "Μετακινήσεις", "Διασκέδαση", "Αγορές", "Υγεία", "Άλλο"];
 const catName = (id) => state.cats.find((c) => c.id === id)?.name;
 
@@ -183,7 +184,26 @@ async function run(action, msgEl) {
 
 /* ================= Υπολογισμοί ================= */
 
-const balanceCents = () => state.txs.reduce((s, t) => s + Number(t.amount_cents), 0);
+// Οι μεταφορές (ανάληψη/κατάθεση) μετακινούν χρήματα ανάμεσα σε μετρητά και κάρτα, δεν αλλάζουν το σύνολο.
+const balanceCents = () => state.txs.reduce((s, t) => (t.kind === "transfer" ? s : s + Number(t.amount_cents)), 0);
+
+// Μετρητά = έξοδα/έσοδα με account "cash" + μεταφορές προς τα μετρητά − μεταφορές προς την κάρτα.
+// Στις μεταφορές το account είναι ο ΠΡΟΟΡΙΣΜΟΣ.
+function cashCents() {
+  return state.txs.reduce((s, t) => {
+    if (t.kind === "transfer") return s + (t.account === "cash" ? 1 : -1) * Number(t.amount_cents);
+    return t.account === "cash" ? s + Number(t.amount_cents) : s;
+  }, 0);
+}
+
+// Έσοδα «εκτός ημερήσιου» (π.χ. επίδομα) που μπήκαν μετά την τελευταία πληρωμή:
+// μένουν στην άκρη μέχρι το επόμενο «Πληρώθηκα», μετά μπαίνουν κανονικά στα διαθέσιμα.
+function reservedCents() {
+  const since = state.settings.cycle_start ? new Date(state.settings.cycle_start).getTime() : 0;
+  return state.txs
+    .filter((t) => t.kind === "income" && t.is_extra && new Date(t.occurred_at).getTime() >= since)
+    .reduce((s, t) => s + Number(t.amount_cents), 0);
+}
 
 function spentSince(start, { excludeBills = false } = {}) {
   const from = start.getTime();
@@ -214,9 +234,10 @@ function budgetInfo() {
   const overdue = diff < 1; // η ημερομηνία πληρωμής πέρασε και δεν πάτησες «Πληρώθηκα»
   const daysLeft = Math.max(1, diff);
   const spentToday = spentSince(day, { excludeBills: true });
-  const available = balanceCents() - goal - pending;
+  const reserved = reservedCents();
+  const available = balanceCents() - goal - pending - reserved;
   const allowance = Math.floor((available + spentToday) / daysLeft); // λεπτά, ακέραιο
-  return { allowance, leftToday: allowance - spentToday, available, daysLeft, goal, pending, overdue };
+  return { allowance, leftToday: allowance - spentToday, available, daysLeft, goal, pending, reserved, overdue };
 }
 
 function periodStarts() {
@@ -231,6 +252,7 @@ function periodStarts() {
 
 function txLabel(t) {
   if (t.note) return t.note;
+  if (t.kind === "transfer") return t.account === "cash" ? "Ανάληψη (κάρτα → μετρητά)" : "Κατάθεση (μετρητά → κάρτα)";
   return { expense: "Αγορά", income: "Έσοδο", initial: "Αρχικό υπόλοιπο", adjustment: "Διόρθωση υπολοίπου" }[t.kind];
 }
 
@@ -238,6 +260,10 @@ function render() {
   const bal = balanceCents();
   $("balance").textContent = formatCents(bal);
   $("balance").classList.toggle("neg", bal < 0);
+  const cash = cashCents();
+  const usesCash = cash !== 0 || state.txs.some((t) => t.account === "cash" || t.kind === "transfer");
+  $("split").hidden = !usesCash;
+  $("split").textContent = `Μετρητά: ${formatCents(cash)} · Κάρτα: ${formatCents(bal - cash)}`;
 
   const p = periodStarts();
   $("sum-day").textContent = formatCents(spentSince(p.day));
@@ -251,7 +277,7 @@ function render() {
     $("bud-today").textContent = formatCents(b.leftToday);
     $("bud-today").classList.toggle("neg", b.leftToday < 0);
     $("bud-daily").textContent = `Ημερήσιο ποσό: ${formatCents(b.allowance)} · ${b.overdue ? "η πληρωμή έχει περάσει — πάτα «Πληρώθηκα»" : b.daysLeft + " μέρες μέχρι την πληρωμή"}`;
-    $("bud-month").textContent = `Στην άκρη: ${formatCents(b.goal)} · Λογαριασμοί που απομένουν: ${formatCents(b.pending)}`;
+    $("bud-month").textContent = `Στην άκρη: ${formatCents(b.goal)} · Λογαριασμοί που απομένουν: ${formatCents(b.pending)}${b.reserved ? " · Εκτός ημερήσιου: " + formatCents(b.reserved) : ""}`;
   }
 
   const ul = $("history");
@@ -263,13 +289,15 @@ function render() {
     const what = document.createElement("div"); what.className = "what";
     const note = document.createElement("div"); note.className = "note"; note.textContent = txLabel(t);
     if (catName(t.category_id)) { const ct = document.createElement("span"); ct.className = "tag"; ct.textContent = catName(t.category_id); note.append(ct); }
+    if (t.account === "cash" && t.kind !== "transfer") { const tg = document.createElement("span"); tg.className = "tag"; tg.textContent = "μετρητά"; note.append(tg); }
+    if (t.kind === "income" && t.is_extra) { const tg = document.createElement("span"); tg.className = "tag"; tg.textContent = "εκτός ημερήσιου"; note.append(tg); }
     if (t.is_bill) { const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "λογαριασμός"; note.append(tag); }
     const when = document.createElement("div"); when.className = "when"; when.textContent = dateFmt.format(new Date(t.occurred_at));
     what.append(note, when);
     const amt = document.createElement("div");
     const n = Number(t.amount_cents);
-    amt.className = "amt " + (n < 0 ? "neg" : "pos");
-    amt.textContent = (n > 0 ? "+" : "") + formatCents(n);
+    if (t.kind === "transfer") { amt.className = "amt neutral"; amt.textContent = "⇄ " + formatCents(n); }
+    else { amt.className = "amt " + (n < 0 ? "neg" : "pos"); amt.textContent = (n > 0 ? "+" : "") + formatCents(n); }
     li.append(what, amt);
     ul.append(li);
   }
@@ -296,13 +324,16 @@ async function refresh() {
 
 /* ================= Ενέργειες ================= */
 
+const getRadio = (name) => document.querySelector(`input[name="${name}"]:checked`).value;
+const setRadio = (name, value) => { document.querySelector(`input[name="${name}"][value="${value}"]`).checked = true; };
+
 $("add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const cents = parseCents($("add-amount").value);
   if (!cents) { toast("Βάλε έγκυρο ποσό"); $("add-amount").focus(); return; }
   const btn = e.currentTarget.querySelector("button[type=submit]"); btn.disabled = true;
   const ok = await run(async () => {
-    await state.store.add({ kind: "expense", amount_cents: -cents, note: $("add-note").value.trim() || null, is_bill: $("add-bill").checked, category_id: state.addCat });
+    await state.store.add({ kind: "expense", amount_cents: -cents, note: $("add-note").value.trim() || null, is_bill: $("add-bill").checked, category_id: state.addCat, account: getRadio("add-acct") });
     // Πληρωμένος λογαριασμός: μειώνεται το ποσό «λογαριασμοί που απομένουν» (όχι κάτω από 0).
     if ($("add-bill").checked && state.settings.pending_bills_cents > 0) {
       const next = { ...state.settings, pending_bills_cents: Math.max(0, state.settings.pending_bills_cents - cents) };
@@ -312,7 +343,7 @@ $("add-form").addEventListener("submit", async (e) => {
     await refresh();
   });
   btn.disabled = false;
-  if (ok) { $("add-amount").value = ""; $("add-note").value = ""; $("add-bill").checked = false; state.addCat = null; renderCatLists(); toast("Καταχωρήθηκε"); $("add-amount").focus(); }
+  if (ok) { $("add-amount").value = ""; $("add-note").value = ""; $("add-bill").checked = false; setRadio("add-acct", "bank"); state.addCat = null; renderCatLists(); toast("Καταχωρήθηκε"); $("add-amount").focus(); }
 });
 
 $("payday").addEventListener("click", async () => {
@@ -320,12 +351,39 @@ $("payday").addEventListener("click", async () => {
   if (!(await confirmDialog("Πληρώθηκα", `Να προστεθούν ${formatCents(amount)} στο υπόλοιπο;`))) return;
   const ok = await run(async () => {
     await state.store.add({ kind: "income", amount_cents: amount, note: "Πληρωμή" });
-    const next = { ...state.settings, next_payday: estimateNextPayday() };
+    const next = { ...state.settings, next_payday: estimateNextPayday(), cycle_start: new Date().toISOString() };
     await state.store.saveSettings(next);
     state.settings = next;
     await refresh();
   });
   if (ok) toast("Προστέθηκαν " + formatCents(amount));
+});
+
+// Προσθήκη χρημάτων στο υπόλοιπο (επίδομα, δώρο, κ.λπ.)
+$("inc-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const cents = parseCents($("inc-amount").value);
+  if (!cents) { toast("Βάλε έγκυρο ποσό"); $("inc-amount").focus(); return; }
+  const ok = await run(async () => {
+    await state.store.add({ kind: "income", amount_cents: cents, note: $("inc-note").value.trim() || null, account: getRadio("inc-acct"), is_extra: $("inc-extra").checked });
+    await refresh();
+  });
+  if (ok) {
+    $("inc-amount").value = ""; $("inc-note").value = ""; $("inc-extra").checked = false; setRadio("inc-acct", "bank");
+    $("inc-fold").open = false; toast("Προστέθηκαν " + formatCents(cents));
+  }
+});
+
+// Ανάληψη / κατάθεση μετρητών
+$("tr-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const cents = parseCents($("tr-amount").value);
+  if (!cents) { toast("Βάλε έγκυρο ποσό"); $("tr-amount").focus(); return; }
+  const ok = await run(async () => {
+    await state.store.add({ kind: "transfer", amount_cents: cents, account: getRadio("tr-dir"), note: null });
+    await refresh();
+  });
+  if (ok) { $("tr-amount").value = ""; $("tr-fold").open = false; toast("Καταγράφηκε"); }
 });
 
 $("setup-form").addEventListener("submit", async (e) => {
@@ -346,7 +404,12 @@ $("history").addEventListener("click", (e) => {
   if (!li) return;
   const t = state.txs.find((x) => x.id === li.dataset.id);
   state.editing = t;
-  const editable = t.kind === "expense" || t.kind === "income";
+  const editable = t.kind === "expense" || t.kind === "income" || t.kind === "transfer";
+  const spendOrIncome = t.kind === "expense" || t.kind === "income";
+  $("edit-acct-wrap").hidden = !spendOrIncome;
+  if (spendOrIncome) setRadio("edit-acct", t.account || "bank");
+  $("edit-extra-wrap").hidden = t.kind !== "income";
+  $("edit-extra").checked = !!t.is_extra;
   $("edit-title").textContent = txLabel(t);
   $("edit-amount-wrap").hidden = !editable;
   $("edit-amount").value = centsToInput(Math.abs(Number(t.amount_cents)));
@@ -364,11 +427,13 @@ $("edit-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const t = state.editing;
   const patch = { note: $("edit-note").value.trim() || null };
-  if (t.kind === "expense" || t.kind === "income") {
+  if (t.kind === "expense" || t.kind === "income" || t.kind === "transfer") {
     const cents = parseCents($("edit-amount").value);
     if (!cents) { $("edit-msg").textContent = "Βάλε έγκυρο ποσό"; return; }
     patch.amount_cents = t.kind === "expense" ? -cents : cents;
   }
+  if (t.kind === "expense" || t.kind === "income") patch.account = getRadio("edit-acct");
+  if (t.kind === "income") patch.is_extra = $("edit-extra").checked;
   if (t.kind === "expense") { patch.is_bill = $("edit-bill").checked; patch.category_id = state.editCat; }
   const ok = await run(async () => { await state.store.update(t.id, patch); await refresh(); }, $("edit-msg"));
   if (ok) $("dlg-edit").close();
@@ -386,6 +451,7 @@ $("budget-empty").addEventListener("click", () => $("open-settings").click());
 $("open-settings").addEventListener("click", () => {
   $("set-payday").value = centsToInput(state.settings.payday_cents);
   $("set-balance").value = "";
+  $("set-cash").value = "";
   $("set-goal").value = centsToInput(state.settings.savings_goal_cents);
   $("set-next-payday").value = state.settings.next_payday ?? "";
   $("set-pending").value = centsToInput(state.settings.pending_bills_cents);
@@ -407,8 +473,12 @@ $("settings-form").addEventListener("submit", async (e) => {
   const target = balText === "" ? null : parseCents(balText, true);
   if (balText !== "" && target === null) { msg.textContent = "Μη έγκυρο υπόλοιπο"; return; }
 
+  const cashText = $("set-cash").value.trim();
+  const cashTarget = cashText === "" ? null : parseCents(cashText);
+  if (cashText !== "" && cashTarget === null) { msg.textContent = "Μη έγκυρο ποσό μετρητών"; return; }
+
   const ok = await run(async () => {
-    const next = { payday_cents: payday, savings_goal_cents: goal, next_payday: nextPay, pending_bills_cents: pending };
+    const next = { ...state.settings, payday_cents: payday, savings_goal_cents: goal, next_payday: nextPay, pending_bills_cents: pending };
     if (JSON.stringify(next) !== JSON.stringify(state.settings)) {
       await state.store.saveSettings(next);
       state.settings = next;
@@ -416,6 +486,11 @@ $("settings-form").addEventListener("submit", async (e) => {
     if (target !== null) {
       const diff = target - balanceCents();
       if (diff !== 0) await state.store.add({ kind: "adjustment", amount_cents: diff, note: "Διόρθωση υπολοίπου" });
+    }
+    if (cashTarget !== null) {
+      // Η διόρθωση μετρητών μετακινεί ποσό ανάμεσα σε κάρτα και μετρητά, χωρίς να αλλάζει το σύνολο.
+      const diff = cashTarget - cashCents();
+      if (diff !== 0) await state.store.add({ kind: "transfer", amount_cents: Math.abs(diff), account: diff > 0 ? "cash" : "bank", note: "Διόρθωση μετρητών" });
     }
     await refresh();
   }, msg);

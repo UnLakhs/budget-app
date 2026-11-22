@@ -110,3 +110,15 @@ label.check small { display: block; font-size: 13px; color: var(--muted); }
 .cat-list li { display: flex; align-items: center; gap: 6px; background: var(--field); border: 1px solid var(--line); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 14px; }
 .cat-list .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; }
 dialog { max-height: 90vh; overflow-y: auto; }
+
+.split { font-size: 14px; opacity: .9; margin: -6px 0 12px; font-variant-numeric: tabular-nums; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.seg label { position: relative; flex: 1; flex-direction: row; gap: 0; }
+.seg input { position: absolute; opacity: 0; width: 0; height: 0; }
+.seg span { display: block; width: 100%; text-align: center; padding: 12px 8px; font-size: 15px; background: var(--field); color: var(--text); cursor: pointer; }
+.seg input:checked + span { background: var(--accent); color: var(--accent-text); font-weight: 700; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fold summary { cursor: pointer; font-weight: 600; list-style: none; }
+.fold summary::-webkit-details-marker { display: none; }
+.fold[open] summary { margin-bottom: 12px; }
+.history .amt.neutral { color: var(--muted); }
